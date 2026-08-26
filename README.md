@@ -77,9 +77,13 @@ company-knowledge-base/
 │   └── rag_pipeline.py                # 端到端 RAG 编排引擎
 ├── scripts/
 │   ├── build_index.py                 # 构建/重建知识库索引 CLI
-│   └── query_rag.py                   # 智能问答 CLI (支持交互式与自动化测试)
+│   ├── query_rag.py                   # 智能问答 CLI (支持交互式与自动化测试)
+│   └── eval_ragas.py                  # Ragas 30条金标测试集量化评估 CLI
+├── reports/
+│   └── eval_report_baseline.md        # Ragas 问答质量量化评估报告
 ├── tests/
-│   └── test_rag_pipeline.py           # 自动化测试用例
+│   ├── test_rag_pipeline.py           # RAG 框架自动化测试
+│   └── test_evaluator.py              # 评估引擎自动化测试
 ├── .env.example                       # 环境变量示例
 ├── requirements.txt                   # 项目依赖
 └── README.md                          # 本项目说明
@@ -127,7 +131,16 @@ python scripts/query_rag.py --query "怎么申请VPN权限"
 python scripts/query_rag.py
 ```
 
-### 5. 运行自动化测试套件
+### 5. 运行 Ragas 30 条问答质量量化评估
+```bash
+# 运行完整 30 条金标评测集并生成质量报告
+python scripts/eval_ragas.py
+
+# 抽样快跑前 5 条
+python scripts/eval_ragas.py --sample-size 5
+```
+
+### 6. 运行自动化测试套件
 ```bash
 pytest tests/ -v
 ```
