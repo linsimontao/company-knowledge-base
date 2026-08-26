@@ -58,4 +58,3 @@ class RAGConfig(BaseModel):
 
 
 default_config = RAGConfig()
-
