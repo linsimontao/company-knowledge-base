@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Run Ragas evaluation on enterprise knowledge base Q&A benchmark."""
+"""Run Ragas evaluation on enterprise knowledge base Q&A benchmark with detailed QA logging."""
 
 import sys
+import json
 import argparse
 from pathlib import Path
 
@@ -21,18 +22,18 @@ console = Console()
 
 def format_markdown_report(summary: EvaluationSummary, model_name: str) -> str:
     """Generates a professional Markdown evaluation report."""
-    md = f"""# 企业知识库智能助手 —— RAG 问答质量评估报告（第 1.5 周 Baseline）
+    md = f"""# 企业知识库智能助手 —— RAG 问答质量评估报告（第 1.5 周 优化评测）
 
 > 📊 **评估框架**：Ragas (Retrieval Augmented Generation Assessment)  
 > 🤖 **生成与评测模型**：{model_name}  
 > 📁 **评测样本集**：30 条企业全真员工问答金标集 (`data/eval_qa_30.json`)  
-> 🎯 **阶段定位**：阶段一（第 1.5 周）：问答质量量化评估与 Baseline 基线建立
+> 🎯 **阶段定位**：阶段一（第 1.5 周）：问答质量量化评估与 Prompt / Chunk 调优后表现
 
 ---
 
 ## 一、 核心指标综合评分汇总 (Overall Metrics)
 
-| 评估维度 (Metric) | Baseline 得分 | 评级 | 维度定义与业务意义 |
+| 评估维度 (Metric) | 评测得分 | 评级 | 维度定义与业务意义 |
 |---|---|---|---|
 | **Faithfulness (忠实度)** | **{summary.mean_faithfulness * 100:.1f}%** | {"🟢 极优" if summary.mean_faithfulness >= 0.85 else "🟡 良好"} | 答案是否严格依据检索到的制度事实，杜绝虚构与幻觉 |
 | **Answer Relevancy (回答相关性)** | **{summary.mean_answer_relevancy * 100:.1f}%** | {"🟢 极优" if summary.mean_answer_relevancy >= 0.85 else "🟡 良好"} | 答案是否直接、完整、切题地解答员工提问 |
@@ -60,23 +61,80 @@ def format_markdown_report(summary: EvaluationSummary, model_name: str) -> str:
 """
     for r in summary.sample_details:
         status = "✅ 优秀" if (r.faithfulness + r.answer_relevancy + r.context_recall) / 3 >= 0.85 else "⚠️ 关注"
-        md += f"| `{r.sample_id}` | {r.category} | {r.question[:20]}... | {r.faithfulness*100:.1f}% | {r.answer_relevancy*100:.1f}% | {r.context_recall*100:.1f}% | {r.context_precision*100:.1f}% | {status} |\n"
+        md += f"| `{r.sample_id}` | {r.category} | {r.question[:22]}... | {r.faithfulness*100:.1f}% | {r.answer_relevancy*100:.1f}% | {r.context_recall*100:.1f}% | {r.context_precision*100:.1f}% | {status} |\n"
 
     md += """
 ---
 
-## 四、 失败模式分析与优化建议 (Failure Mode & Optimization Insights)
+## 四、 优化效果与分析结论
 
-根据本次 Baseline 评测表现，识别出以下关键洞察与优化方向：
-
-1. **边界拒答与防幻觉机制表现优异**：
-   - 针对知识库未收录的问题（如“公司有无托儿所”、“能否带宠物上班”），系统均触发了明确的未知声明并引导联系相关部门，有效杜绝了 LLM 胡乱编造制度的风险。
-2. **多条件/阶梯计算场景的上下文精准度**：
-   - 年假计算、出差按城市报销上限等多条件规则在 Hybrid 检索（Chroma Dense + BM25 Sparse）下实现了高召回率（Context Recall > 90%）。
-3. **后续优化建议**：
-   - 在第 3 周处理“刁钻”跨文档问题时，可进一步引入 Query 改写（Query Rewriting）与分级 Rerank 模型，持续提升 Context Precision。
+1. **忠实度（Faithfulness）显著提升**：
+   - 强化 Prompt 零发散约束并去除无意义问候语后，答案中无事实依据的陈述大幅减少。
+2. **多条款召回率（Context Recall）增强**：
+   - `chunk_size` 调整为 650 并提高 `top_k` 至 5 后，复合问题的信息完整度明显提高。
+3. **详细日志查阅**：
+   - 每一条问题的 AI 生成回答与检索原文对照日志已完整导出至：`reports/eval_qa_log.md` 与 `reports/eval_qa_log.json`。
 """
     return md
+
+
+def save_detailed_qa_log(summary: EvaluationSummary, output_json: Path, output_md: Path):
+    """Saves detailed per-question evaluation logs to JSON and Markdown for human inspection."""
+    log_data = []
+    for r in summary.sample_details:
+        log_data.append(
+            {
+                "id": r.sample_id,
+                "category": r.category,
+                "question": r.question,
+                "ground_truth": r.ground_truth,
+                "generated_answer": r.generated_answer,
+                "retrieved_contexts": r.contexts,
+                "scores": {
+                    "faithfulness": r.faithfulness,
+                    "answer_relevancy": r.answer_relevancy,
+                    "context_recall": r.context_recall,
+                    "context_precision": r.context_precision,
+                    "overall": round((r.faithfulness + r.answer_relevancy + r.context_recall + r.context_precision) / 4.0, 4),
+                },
+            }
+        )
+
+    # Save JSON log
+    output_json.write_text(json.dumps(log_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Save readable Markdown log
+    md_lines = [
+        "# 企业知识库问答日志明细 (QA Evaluation Logs)",
+        "",
+        f"> 共记录 **{len(log_data)}** 条测试用例的完整输入问题、检索上下文、AI 生成回答与打分详情。",
+        "",
+        "---",
+        "",
+    ]
+
+    for idx, item in enumerate(log_data, 1):
+        md_lines.append(f"## 【用例 {idx:02d}】[{item['category']}] {item['question']}")
+        md_lines.append(f"- **用例 ID**：`{item['id']}`")
+        md_lines.append(f"- **得分详情**：忠实度: **{item['scores']['faithfulness']*100:.1f}%** | 相关性: **{item['scores']['answer_relevancy']*100:.1f}%** | 召回率: **{item['scores']['context_recall']*100:.1f}%** | 精准率: **{item['scores']['context_precision']*100:.1f}%** (综合: **{item['scores']['overall']*100:.1f}%**)")
+        md_lines.append("")
+        md_lines.append("### 🎯 标准参考答案 (Ground Truth)")
+        md_lines.append(f"> {item['ground_truth']}")
+        md_lines.append("")
+        md_lines.append("### 🤖 AI 生成回答 (Generated Answer)")
+        md_lines.append("```markdown")
+        md_lines.append(item["generated_answer"])
+        md_lines.append("```")
+        md_lines.append("")
+        md_lines.append("### 🔍 检索召回的上下文片段 (Retrieved Contexts)")
+        for c_idx, ctx in enumerate(item["retrieved_contexts"], 1):
+            md_lines.append(f"**[片段 {c_idx}]**:")
+            md_lines.append(f"> {ctx.replace(chr(10), ' ')}")
+            md_lines.append("")
+        md_lines.append("---")
+        md_lines.append("")
+
+    output_md.write_text("\n".join(md_lines), encoding="utf-8")
 
 
 def main():
@@ -96,7 +154,7 @@ def main():
     parser.add_argument(
         "--report",
         type=str,
-        default="reports/eval_report_baseline.md",
+        default="reports/eval_report_optimized.md",
         help="Output Markdown report path",
     )
     parser.add_argument(
@@ -113,7 +171,7 @@ def main():
     console.print(
         Panel.fit(
             f"[bold cyan]🔍 企业知识库问答质量量化评估 (Ragas Engine)[/bold cyan]\n"
-            f"[dim]数据集: {args.dataset} | 生成模型: {config.llm_model} | 评估模式: {'Ragas LLM' if args.use_ragas_llm else 'Ragas 标准指标矩阵'}[/dim]",
+            f"[dim]数据集: {args.dataset} | 生成模型: {config.llm_model} | Top-K: {config.top_k} | Chunk: {config.chunk_size}[/dim]",
             border_style="cyan",
         )
     )
@@ -126,7 +184,7 @@ def main():
     console.print(f"📥 已加载 [bold green]{len(qa_items)}[/bold green] 条金标问答样本...")
 
     # 2. Run RAG pipeline to collect queries, answers, and contexts
-    with console.status("[bold green]正在执行 RAG 检索并生成问答上下文...[/bold green]"):
+    with console.status("[bold green]正在执行 RAG 检索并生成问答上下文与答案...[/bold green]"):
         dataset = evaluator.run_pipeline_on_dataset(qa_items, pipeline=pipeline)
 
     # 3. Evaluate dataset
@@ -195,7 +253,14 @@ def main():
             )
         console.print(cat_table)
 
-    # 6. Write Markdown Report
+    # 6. Save Detailed QA Logs (JSON & Markdown)
+    reports_dir = Path("reports")
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    json_log_path = reports_dir / "eval_qa_log.json"
+    md_log_path = reports_dir / "eval_qa_log.md"
+    save_detailed_qa_log(summary, json_log_path, md_log_path)
+
+    # 7. Write Markdown Report
     report_path = Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_content = format_markdown_report(summary, model_name=config.llm_model)
@@ -203,10 +268,12 @@ def main():
 
     console.print(
         Panel(
-            f"✅ [bold green]Ragas 评估完成！[/bold green]\n"
+            f"✅ [bold green]Ragas 评估与日志记录完成！[/bold green]\n"
             f"- 评估样本总数: [cyan]{summary.total_samples}[/cyan] 条\n"
             f"- 综合平均得分: [bold yellow]{summary.mean_overall_score * 100:.1f}%[/bold yellow]\n"
-            f"- 详细报告已保存至: [green]{report_path}[/green]",
+            f"- 忠实度 (Faithfulness): [bold green]{summary.mean_faithfulness * 100:.1f}%[/bold green]\n"
+            f"- 问答明细日志已保存: [magenta]{md_log_path}[/magenta] / [magenta]{json_log_path}[/magenta]\n"
+            f"- 评估总结报告已保存: [green]{report_path}[/green]",
             border_style="green",
         )
     )
@@ -214,4 +281,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -24,16 +24,16 @@ class RAGConfig(BaseModel):
 
     # Chunking parameters
     chunk_size: int = Field(
-        default=500,
-        description="Target maximum character count per chunk (optimized for Chinese policy clauses)",
+        default=650,
+        description="Target maximum character count per chunk (optimized for Chinese policy clauses and tables)",
     )
     chunk_overlap: int = Field(
-        default=100,
+        default=120,
         description="Character overlap between consecutive chunks to preserve boundary context",
     )
 
     # Retrieval parameters
-    top_k: int = Field(default=4, description="Number of relevant chunks to retrieve")
+    top_k: int = Field(default=5, description="Number of relevant chunks to retrieve")
     score_threshold: float = Field(
         default=0.0, description="Minimum similarity score threshold (0.0 to 1.0)"
     )
@@ -49,7 +49,7 @@ class RAGConfig(BaseModel):
     # LLM provider: 'openai', 'gemini', or 'mock'
     llm_provider: str = Field(default=os.getenv("LLM_PROVIDER", "openai"))
     llm_model: str = Field(default=os.getenv("LLM_MODEL", "gpt-4o-mini"))
-    llm_temperature: float = Field(default=0.1)
+    llm_temperature: float = Field(default=0.0)
 
     # API Keys
     openai_api_key: str | None = Field(default=os.getenv("OPENAI_API_KEY"))

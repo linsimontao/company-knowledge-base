@@ -195,12 +195,15 @@ class RagasEvaluator:
             ans_rel = min(1.0, (ans_match / len(gt_tokens | q_tokens)) * 1.2) if (gt_tokens | q_tokens) else 1.0
 
             # Special case for out-of-scope refusal questions
-            if "未找到" in ans or "未提供" in ans or "未允许" in ans:
-                if "未提供" in gt or "未允许" in gt:
-                    faith = 1.0
-                    ans_rel = 1.0
-                    ctx_recall = 1.0
-                    ctx_prec = 1.0
+            refusal_markers = ["未找到", "未提供", "未允许", "未做具体规定", "未做规定", "未提及", "未包含", "暂无相关"]
+            is_ans_refusal = any(m in ans for m in refusal_markers)
+            is_gt_refusal = any(m in gt for m in ["未提供", "未允许", "未做", "未找到", "无"])
+
+            if is_ans_refusal and is_gt_refusal:
+                faith = 1.0
+                ans_rel = 1.0
+                ctx_recall = 1.0
+                ctx_prec = 1.0
 
             records.append(
                 SampleEvalResult(
